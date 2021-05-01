@@ -122,6 +122,18 @@ public class VideoPlayerPlugin implements FlutterPlugin, VideoPlayerApi {
     EventChannel eventChannel =
         new EventChannel(
             flutterState.binaryMessenger, "flutter.io/videoPlayer/videoEvents" + handle.id());
+    
+    int maxCacheSize, maxFileSize;
+    if (call.argument("maxCacheSize") == null) {
+      maxCacheSize = (100 * 1024 * 1024); // default to 100 MiB for the entire cache
+    } else {
+      maxCacheSize = call.argument("maxCacheSize");
+    }
+    if (call.argument("maxFileSize") == null) {
+      maxFileSize = (10 * 1024 * 1024); // default to 10 MiB per file
+    } else {
+      maxFileSize = call.argument("maxFileSize");
+    }
 
     VideoPlayer player;
     if (arg.getAsset() != null) {
@@ -140,7 +152,9 @@ public class VideoPlayerPlugin implements FlutterPlugin, VideoPlayerApi {
               "asset:///" + assetLookupKey,
               null,
               null,
-              options);
+              options,
+              maxCacheSize,
+              maxFileSize);
     } else {
       @SuppressWarnings("unchecked")
       Map<String, String> httpHeaders = arg.getHttpHeaders();
@@ -152,7 +166,9 @@ public class VideoPlayerPlugin implements FlutterPlugin, VideoPlayerApi {
               arg.getUri(),
               arg.getFormatHint(),
               httpHeaders,
-              options);
+              options,
+              maxCacheSize,
+              maxFileSize);
     }
     videoPlayers.put(handle.id(), player);
 
