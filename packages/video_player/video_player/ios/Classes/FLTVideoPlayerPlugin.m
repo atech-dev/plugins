@@ -53,6 +53,7 @@ int64_t FLTCMTimeToMillis(CMTime time) {
 - (void)pause;
 - (void)setIsLooping:(bool)isLooping;
 - (void)updatePlayingState;
++ (VIResourceLoaderManager*)resourceLoaderManager;
 @end
 
 static void* timeRangeContext = &timeRangeContext;
@@ -173,8 +174,37 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
   }
   AVURLAsset* urlAsset = [AVURLAsset URLAssetWithURL:url options:options];
   AVPlayerItem* item = [AVPlayerItem playerItemWithAsset:urlAsset];
+  return [self initWithPlayerItem:item frameUpdater:frameUpdater enableCache:NO];
+}
+
+- (instancetype)initWithURL:(NSURL*)url
+               frameUpdater:(FLTFrameUpdater*)frameUpdater
+               httpHeaders:(NSDictionary<NSString*, NSString*>*)headers
+               enableCache:(BOOL)enableCache {
+  NSDictionary<NSString*, id>* options = nil;
+  if (headers != nil && [headers count] != 0) {
+    options = @{@"AVURLAssetHTTPHeaderFieldsKey" : headers};
+  }
+  AVURLAsset* urlAsset = [AVURLAsset URLAssetWithURL:url options:options];
+  AVPlayerItem* item;
+  // AVPlayerItem* item = [AVPlayerItem playerItemWithAsset:urlAsset];
+                 
+  if (enableCache) {
+    item = [[FLTVideoPlayer resourceLoaderManager] playerItemWithAsset:urlAsset];
+  } else {
+    item = [AVPlayerItem playerItemWithAsset:urlAsset];
+  }
+                 
   return [self initWithPlayerItem:item frameUpdater:frameUpdater];
 }
+
++ (VIResourceLoaderManager*)resourceLoaderManager {
+    static VIResourceLoaderManager* resourceLoaderManager = nil;
+    if (resourceLoaderManager == nil) {
+      resourceLoaderManager = [VIResourceLoaderManager new];
+    }
+    return resourceLoaderManager;
+  }
 
 - (CGAffineTransform)fixTransform:(AVAssetTrack*)videoTrack {
   CGAffineTransform transform = videoTrack.preferredTransform;
@@ -519,6 +549,10 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 
 - (FLTTextureMessage*)create:(FLTCreateMessage*)input error:(FlutterError**)error {
   FLTFrameUpdater* frameUpdater = [[FLTFrameUpdater alloc] initWithRegistry:_registry];
+  
+  long maxCacheSizeArg = ((NSNumber*)input.maxCacheSize).longValue;
+  long maxFileSizeArg = ((NSNumber*)input.maxFileSize).longValue;
+  
   FLTVideoPlayer* player;
   if (input.asset) {
     NSString* assetPath;
@@ -533,6 +567,23 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     player = [[FLTVideoPlayer alloc] initWithURL:[NSURL URLWithString:input.uri]
                                     frameUpdater:frameUpdater
                                      httpHeaders:input.httpHeaders];
+    
+    BOOL enableCache = maxCacheSizeArg > 0 && maxFileSizeArg > 0;
+
+    if (enableCache) {
+      NSString* escapedURL = [input.uri
+          stringByAddingPercentEncodingWithAllowedCharacters:NSMutableCharacterSet
+                                                                 .alphanumericCharacterSet];
+      player = [[FLTVideoPlayer alloc] initWithURL:[NSURL URLWithString:escapedURL]
+                                      frameUpdater:frameUpdater
+                                      httpHeaders:input.httpHeaders
+                                      enableCache:enableCache];
+    } else {
+      player = [[FLTVideoPlayer alloc] initWithURL:[NSURL URLWithString:input.uri]
+                                      frameUpdater:frameUpdater
+                                      httpHeaders:input.httpHeaders];
+    }
+    
     return [self onPlayerSetup:player frameUpdater:frameUpdater];
   } else {
     *error = [FlutterError errorWithCode:@"video_player" message:@"not implemented" details:nil];
