@@ -27,13 +27,20 @@ import com.google.android.exoplayer2.source.hls.HlsMediaSource;
 import com.google.android.exoplayer2.source.smoothstreaming.DefaultSsChunkSource;
 import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource;
 import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
+import com.google.android.exoplayer2.upstream.FileDataSource;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSink;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
+import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
+import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.view.TextureRegistry;
 import java.util.Arrays;
+import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -66,7 +73,9 @@ final class VideoPlayer {
       String dataSource,
       String formatHint,
       Map<String, String> httpHeaders,
-      VideoPlayerOptions options) {
+      VideoPlayerOptions options,
+      int maxCacheSize,
+      int maxFileSize) {
     this.eventChannel = eventChannel;
     this.textureEntry = textureEntry;
     this.options = options;
@@ -88,6 +97,11 @@ final class VideoPlayer {
         httpDataSourceFactory.getDefaultRequestProperties().set(httpHeaders);
       }
       dataSourceFactory = httpDataSourceFactory;
+      
+      if (maxCacheSize > 0 && maxFileSize > 0) {
+          dataSourceFactory =
+              new CacheDataSourceFactory(context, maxCacheSize, maxFileSize, dataSourceFactory);
+        }
     } else {
       dataSourceFactory = new DefaultDataSourceFactory(context, "ExoPlayer");
     }
@@ -303,5 +317,40 @@ final class VideoPlayer {
     if (exoPlayer != null) {
       exoPlayer.release();
     }
+  }
+}
+
+class CacheDataSourceFactory implements DataSource.Factory {
+  private final Context context;
+  private final DefaultDataSourceFactory defaultDatasourceFactory;
+  private final long maxFileSize, maxCacheSize;
+  private static SimpleCache downloadCache;
+
+  CacheDataSourceFactory(
+      Context context, long maxCacheSize, long maxFileSize, DataSource.Factory upstreamDataSource) {
+    super();
+    this.context = context;
+    this.maxCacheSize = maxCacheSize;
+    this.maxFileSize = maxFileSize;
+    DefaultBandwidthMeter bandwidthMeter = new DefaultBandwidthMeter();
+    defaultDatasourceFactory =
+        new DefaultDataSourceFactory(this.context, bandwidthMeter, upstreamDataSource);
+  }
+
+  @Override
+  public DataSource createDataSource() {
+    LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(maxCacheSize);
+
+    if (downloadCache == null) {
+      downloadCache = new SimpleCache(new File(context.getCacheDir(), "video"), evictor);
+    }
+
+    return new CacheDataSource(
+        downloadCache,
+        defaultDatasourceFactory.createDataSource(),
+        new FileDataSource(),
+        new CacheDataSink(downloadCache, maxFileSize),
+        CacheDataSource.FLAG_BLOCK_ON_CACHE | CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR,
+        null);
   }
 }
